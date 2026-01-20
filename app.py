@@ -53,7 +53,7 @@ def load_and_clean_data():
 # Create SQLite in-memory database with caching
 @st.cache_resource
 def create_sqlite_connection(data):
-    conn = sqlite3.connect(':memory:')
+    conn = sqlite3.connect(':memory:', check_same_thread=False)
     data.to_sql('sales', conn, index=False, if_exists='replace')
     return conn
 
@@ -210,9 +210,8 @@ with st.sidebar.expander("数据管理", expanded=False):
         # Save combined data
         combined_data.to_csv('istanbul_sales_data.csv.csv', index=False)
         
-        # Update SQLite database
-        conn = sqlite3.connect(':memory:')
-        combined_data.to_sql('sales', conn, index=False, if_exists='replace')
+        # Update SQLite database by recreating the cached connection
+        conn = create_sqlite_connection(combined_data)
         
         st.success(f"成功上传并合并 {len(new_data)} 条记录！")
         st.info("应用将在刷新后使用新数据。")
