@@ -109,6 +109,12 @@ date_range = st.sidebar.date_input("Date Range", [min_date, max_date], min_value
 st.sidebar.header("价格策略模拟")
 price_change = st.sidebar.slider("价格变化百分比", -50, 50, 0)
 
+# Business Strategy Simulator
+st.sidebar.header("经营策略模拟器")
+aov_change = st.sidebar.slider("平均客单价变动 (%)", -30, 50, 0)
+order_growth = st.sidebar.slider("订单量预期增长 (%)", -20, 100, 0)
+ad_cost = st.sidebar.slider("广告投入成本 ($)", 0, 100000, 0)
+
 # Filter the data using SQL
 def filter_data_with_sql(selected_categories, selected_genders, selected_payment_methods, selected_malls, age_range, date_range):
     # Build SQL query
@@ -250,11 +256,172 @@ with st.container():
     col1, col2, col3 = st.columns(3)
     col1.metric("总销售额", f"${total_sales:,.2f}", f"{data_percentage:.1f}% of total")
     col2.metric("平均客单价 (AOV)", f"${average_sale:,.2f}")
-    col3.metric("YoY 增长率", f"{yoy_growth:+.1f}%")
+    
+    # Determine color for YoY growth based on thresholds
+    if yoy_growth < 5:
+        yoy_color = "red"
+    elif yoy_growth < 15:
+        yoy_color = "orange"
+    else:
+        yoy_color = "green"
+    
+    # Use HTML to style the YoY growth metric with custom color
+    with col3:
+        st.markdown(f"""
+        <div style="background-color: #F8FAFC; border-radius: 8px; padding: 16px; border: 1px solid #E6E9EF;">
+            <div style="font-size: 14px; color: #64748B; margin-bottom: 4px;">YoY 增长率</div>
+            <div style="font-size: 24px; font-weight: 600; color: {yoy_color};">{yoy_growth:+.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
     
     # Display expected revenue from price strategy simulation
     st.markdown("### 价格策略模拟")
     st.metric("预期营收", f"${expected_revenue:,.2f}", f"{price_change:+.0f}%")
+
+# Business Strategy Simulator Results
+st.subheader("经营策略模拟结果")
+with st.container():
+    # Calculate current metrics
+    current_revenue = total_sales
+    current_orders = total_transactions
+    current_aov = average_sale
+    
+    # Calculate simulated metrics
+    simulated_aov = current_aov * (1 + aov_change / 100)
+    simulated_orders = current_orders * (1 + order_growth / 100)
+    simulated_revenue = simulated_aov * simulated_orders
+    simulated_profit = simulated_revenue - ad_cost
+    current_profit = current_revenue  # Assuming no additional costs for current state
+    
+    # Calculate changes
+    revenue_change = ((simulated_revenue - current_revenue) / current_revenue * 100) if current_revenue > 0 else 0
+    profit_change = ((simulated_profit - current_profit) / current_profit * 100) if current_profit > 0 else 0
+    
+    # Create comparison table
+    comparison_data = {
+        "指标": ["当前营收", "模拟营收", "营收变化", "当前利润", "模拟利润", "利润变化", "当前订单量", "模拟订单量", "当前客单价", "模拟客单价", "广告投入"],
+        "数值": [
+            f"${current_revenue:,.2f}",
+            f"${simulated_revenue:,.2f}",
+            f"{revenue_change:+.1f}%",
+            f"${current_profit:,.2f}",
+            f"${simulated_profit:,.2f}",
+            f"{profit_change:+.1f}%",
+            f"{current_orders:,}",
+            f"{simulated_orders:.0f}",
+            f"${current_aov:,.2f}",
+            f"${simulated_aov:,.2f}",
+            f"${ad_cost:,.2f}"
+        ]
+    }
+    
+    comparison_df = pd.DataFrame(comparison_data)
+    st.dataframe(comparison_df, use_container_width=True)
+    
+    # Add insights based on simulation
+    if simulated_profit > current_profit:
+        st.success(f"✅ 模拟策略预计将增加利润 ${simulated_profit - current_profit:,.2f} ({profit_change:+.1f}%)")
+        if ad_cost > 0:
+            roi = ((simulated_revenue - current_revenue - ad_cost) / ad_cost * 100) if ad_cost > 0 else 0
+            st.info(f"📊 广告投入 ROI: {roi:+.1f}%")
+    else:
+        st.warning(f"⚠️ 模拟策略预计将减少利润 ${current_profit - simulated_profit:,.2f} ({profit_change:+.1f}%)")
+        st.info("建议调整参数以提高盈利能力。")
+
+# Intelligent Insights section
+st.subheader("智能洞察")
+with st.container():
+    # Determine the latest month in the data
+    if not filtered_data.empty:
+        # Extract year and month
+        filtered_data['year_month'] = filtered_data['invoice_date'].dt.strftime('%Y-%m')
+        latest_month = filtered_data['year_month'].max()
+        
+        # Filter data for the latest month
+        latest_month_data = filtered_data[filtered_data['year_month'] == latest_month]
+        
+        if not latest_month_data.empty:
+            # Calculate sales per mall for the latest month
+            mall_sales = latest_month_data.groupby('shopping_mall')['total_sales'].sum().reset_index()
+            avg_mall_sales = mall_sales['total_sales'].mean()
+            
+            # Identify abnormal malls (deviation > 20% from average)
+            abnormal_malls = []
+            for _, row in mall_sales.iterrows():
+                mall = row['shopping_mall']
+                sales = row['total_sales']
+                deviation = ((sales - avg_mall_sales) / avg_mall_sales) * 100
+                
+                if abs(deviation) > 20:  # Threshold for abnormality
+                    abnormal_malls.append((mall, sales, deviation))
+            
+            # Analyze each abnormal mall
+            for mall, sales, deviation in abnormal_malls:
+                # Get mall's data
+                mall_data = latest_month_data[latest_month_data['shopping_mall'] == mall]
+                
+                # Calculate category distribution for the mall
+                mall_category_dist = mall_data.groupby('category')['total_sales'].sum() / sales * 100
+                
+                # Calculate overall category distribution
+                overall_category_dist = latest_month_data.groupby('category')['total_sales'].sum() / latest_month_data['total_sales'].sum() * 100
+                
+                # Calculate payment method distribution for the mall
+                mall_payment_dist = mall_data.groupby('payment_method')['total_sales'].sum() / sales * 100
+                
+                # Calculate overall payment method distribution
+                overall_payment_dist = latest_month_data.groupby('payment_method')['total_sales'].sum() / latest_month_data['total_sales'].sum() * 100
+                
+                # Find significant category deviations
+                category_deviations = []
+                for category in overall_category_dist.index:
+                    if category in mall_category_dist:
+                        diff = mall_category_dist[category] - overall_category_dist[category]
+                        if abs(diff) > 10:  # Threshold for significant difference
+                            category_deviations.append((category, diff))
+                
+                # Find significant payment method deviations
+                payment_deviations = []
+                for payment in overall_payment_dist.index:
+                    if payment in mall_payment_dist:
+                        diff = mall_payment_dist[payment] - overall_payment_dist[payment]
+                        if abs(diff) > 15:  # Threshold for significant difference
+                            payment_deviations.append((payment, diff))
+                
+                # Generate insight
+                if deviation < 0:  # Poor performance
+                    insight = f"检测到 {mall} 商场表现低迷，"
+                    if category_deviations:
+                        # Find the category with the most negative deviation
+                        worst_category, worst_diff = min(category_deviations, key=lambda x: x[1])
+                        insight += f"主要原因是 {worst_category} 品类占比低于大盘 {abs(worst_diff):.1f}%，"
+                        insight += "建议引入高价值相关品类。"
+                    elif payment_deviations:
+                        worst_payment, worst_diff = min(payment_deviations, key=lambda x: x[1])
+                        insight += f"主要原因是 {worst_payment} 支付方式占比低于大盘 {abs(worst_diff):.1f}%，"
+                        insight += "建议优化支付流程以提升转化率。"
+                    else:
+                        insight += "未发现明显的品类或支付方式异常，建议全面评估运营策略。"
+                else:  # Good performance
+                    insight = f"检测到 {mall} 商场表现优异，"
+                    if category_deviations:
+                        # Find the category with the most positive deviation
+                        best_category, best_diff = max(category_deviations, key=lambda x: x[1])
+                        insight += f"主要原因是 {best_category} 品类占比高于大盘 {best_diff:.1f}%，"
+                        insight += "建议继续加大该品类的投入。"
+                    elif payment_deviations:
+                        best_payment, best_diff = max(payment_deviations, key=lambda x: x[1])
+                        insight += f"主要原因是 {best_payment} 支付方式占比高于大盘 {best_diff:.1f}%，"
+                        insight += "建议优化该支付方式的用户体验。"
+                    else:
+                        insight += "各品类和支付方式分布均衡，建议保持当前策略并探索新增长点。"
+                
+                # Display insight
+                st.info(insight)
+        else:
+            st.warning("当前筛选条件下无最新月份数据，无法生成智能洞察。")
+    else:
+        st.warning("当前筛选条件下无数据，无法生成智能洞察。")
 
 # Layer 2: Structure Distribution
 st.subheader("销售分布概览")
