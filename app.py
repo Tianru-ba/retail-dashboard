@@ -178,6 +178,11 @@ filtered_data = filter_data_with_sql(
     date_range
 )
 
+# Check if filtered data is empty
+if filtered_data.empty:
+    st.warning('⚠️ 当前筛选条件下无数据，请重新选择商场或品类。')
+    st.stop()
+
 # Data Management section
 with st.sidebar.expander("数据管理", expanded=False):
     st.subheader("数据管理")
